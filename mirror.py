@@ -38,6 +38,9 @@ LINK = re.compile(rb"https?://(?:[a-z0-9-]+\.)*smn\.gob\.ar/[^\s<>\"']+?\.xml")
 CAP = re.compile(rb"<(?:[\w-]+:)?alert[\s>]")
 # File names reused across issues (heat waves): copy them again every run.
 REUSED = "/oladecalor/"
+# After this many failed runs in a row, write an empty file so the Worker gives
+# up on it instead of waiting (seen: forms.smn.gob.ar answering 522 for hours).
+MAX_FAILURES = 3
 
 
 def now_iso():
@@ -77,6 +80,7 @@ def main():
     except (OSError, ValueError):
         status = {}
     status.setdefault("feeds", {})
+    failures = status.setdefault("failures", {})
 
     links = []
     feed_ok = {}
@@ -107,11 +111,14 @@ def main():
     todo = [u for u in wanted if REUSED in u or not os.path.exists(os.path.join(SITE, file_rel(u)))]
     for url in todo[:MAX_FILES]:
         code, body = get(url)
+        rel = file_rel(url)
         if code == 200 and CAP.search(body):
-            write(file_rel(url), body)
+            write(rel, body)
+            failures.pop(url, None)
             copied += 1
         elif code in (404, 410):
-            write(file_rel(url), b"")
+            write(rel, b"")
+            failures.pop(url, None)
             copied += 1
         elif code == 429:
             print(f"rate limited: {body[:80]!r}")
@@ -119,7 +126,12 @@ def main():
             break
         else:
             failed += 1
-            print(f"file {url}: HTTP {code}")
+            failures[url] = failures.get(url, 0) + 1
+            print(f"file {url}: HTTP {code} (failure {failures[url]})")
+            # A reused file keeps its last good copy; a new one is given up as empty.
+            if failures[url] >= MAX_FAILURES and not os.path.exists(os.path.join(SITE, rel)):
+                write(rel, b"")
+                copied += 1
         time.sleep(0.1)
 
     # Forget files the SMN no longer lists, only when the index answered.
@@ -133,6 +145,8 @@ def main():
                     os.remove(os.path.join(dirpath, n))
                     removed += 1
 
+    for url in [u for u in failures if file_rel(u) not in keep]:
+        del failures[url]
     status["updated"] = now_iso()
     status["backlog"] = len(todo) - copied
     write("status.json", json.dumps(status, indent=1).encode())
