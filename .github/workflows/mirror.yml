@@ -1,0 +1,60 @@
+name: mirror
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+    # Monthly empty commit: GitHub disables schedules after 60 days without activity.
+    - cron: "17 12 1 * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mirror
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    if: github.event.schedule != '17 12 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      # The copied files live in the Actions cache between runs, so each run
+      # only downloads what's new.
+      - uses: actions/cache/restore@v4
+        with:
+          path: site
+          key: site-${{ github.run_id }}
+          restore-keys: site-
+      - id: mirror
+        run: python3 mirror.py site
+      - if: steps.mirror.outputs.changed == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: site
+          key: site-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  keepalive:
+    if: github.event.schedule == '17 12 1 * *'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Keep the schedule alive"
+          git push
