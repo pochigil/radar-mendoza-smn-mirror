@@ -43,7 +43,14 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+      # Pages deploys sometimes fail on GitHub's side ("Fetching artifact
+      # metadata failed"); retry once so a blip doesn't send a failure email.
       - id: deploy
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - if: steps.deploy.outcome == 'failure'
         uses: actions/deploy-pages@v4
 
   keepalive:
