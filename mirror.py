@@ -159,7 +159,7 @@ def main():
         "Source: <a href='https://www.smn.gob.ar/'>smn.gob.ar</a>.</p>"
     ).encode())
 
-    changed = copied > 0 or removed > 0
+    changed = copied > 0 or removed > 0 or failed > 0  # failure counts must persist too
     print(json.dumps({"feeds": feed_ok, "listed": len(wanted), "copied": copied,
                       "failed": failed, "removed": removed, "backlog": status["backlog"],
                       "rate_limited": limited}))
