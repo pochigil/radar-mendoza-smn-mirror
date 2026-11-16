@@ -16,6 +16,7 @@ A feed copy is only replaced by a good RSS body, so an error page never
 overwrites it. A file the SMN answers 404 for is written empty, so the
 Worker gives up on it instead of waiting forever.
 """
+import hashlib
 import json
 import os
 import re
@@ -72,6 +73,18 @@ def file_rel(url):
     return "files/" + u.hostname + u.path
 
 
+ITEM = re.compile(rb"<item[\s>]", re.I)
+
+
+def items_sha1(body):
+    """SHA-1 of a feed from its first <item> on. The channel header's dates
+    change on every SMN build; the items only when the alerts do. The Worker
+    reads this from status.json to skip downloading feeds that didn't change,
+    and computes the same hash on what it downloads (src/refresh.ts)."""
+    m = ITEM.search(body)
+    return hashlib.sha1(body[m.start():] if m else b"").hexdigest()
+
+
 def main():
     status_path = os.path.join(SITE, "status.json")
     try:
@@ -93,6 +106,7 @@ def main():
         if ok:
             write(rel, body)
             entry["ok"] = now_iso()
+            entry["items_sha1"] = items_sha1(body)
         else:
             print(f"feed {name}: HTTP {code} {body[:80]!r}")
         try:
